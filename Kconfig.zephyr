@@ -472,6 +472,11 @@ endchoice
 
 menu "Build Options"
 
+config LTO
+	bool "Enable Link Time Optimisation"
+	help
+	  This option enables Link Time Optimisation
+
 config KERNEL_BIN_NAME
 	string "The kernel binary name"
 	default "zephyr"
