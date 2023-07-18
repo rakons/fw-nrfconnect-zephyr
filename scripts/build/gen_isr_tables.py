@@ -62,6 +62,8 @@ def read_intlist(intlist_path, syms):
         void *func;
         /** Parameter for non-direct IRQs */
         const void *param;
+        /** The name of the function to call */
+        char func_name[32];
     };
     """
 
@@ -71,9 +73,9 @@ def read_intlist(intlist_path, syms):
 
     intlist_header_fmt = prefix + "II"
     if "CONFIG_64BIT" in syms:
-        intlist_entry_fmt = prefix + "iiQQ"
+        intlist_entry_fmt = prefix + "iiQQ32s"
     else:
-        intlist_entry_fmt = prefix + "iiII"
+        intlist_entry_fmt = prefix + "iiII32s"
 
     with open(intlist_path, "rb") as fp:
         intdata = fp.read()
@@ -273,24 +275,23 @@ def main():
     debug('num_vectors is ' + str(nvec))
 
     # Set default entries in both tables
-    if args.sw_isr_table:
-        # All vectors just jump to the common vt_irq_handler. If some entries
-        # are used for direct interrupts, they will be replaced later.
-        if args.vector_table:
+    if not (args.sw_isr_table or args.vector_table):
+        error("one or both of -s or -V needs to be specified on command line")
+    # All vectors just jump to the common vt_irq_handler. If some entries
+    # are used for direct interrupts, they will be replaced later.
+    if args.vector_table:
             vt = [vt_irq_handler for i in range(nvec)]
-        else:
-            vt = None
+    else:
+        vt = None
+    if args.sw_isr_table:
         # Default to spurious interrupt handler. Configured interrupts
         # will replace these entries.
         swt = [(0, swt_spurious_handler) for i in range(nvec)]
     else:
-        if args.vector_table:
-            vt = [vt_spurious_handler for i in range(nvec)]
-        else:
-            error("one or both of -s or -V needs to be specified on command line")
         swt = None
 
-    for irq, flags, func, param in intlist["interrupts"]:
+    for irq, flags, func, param, func_name_raw in intlist["interrupts"]:
+        func_name = func_name_raw.decode().rstrip('\x00')
         if flags & ISR_FLAG_DIRECT:
             if param != 0:
                 error("Direct irq %d declared, but has non-NULL parameter"
@@ -298,7 +299,10 @@ def main():
             if not 0 <= irq - offset < len(vt):
                 error("IRQ %d (offset=%d) exceeds the maximum of %d" %
                       (irq - offset, offset, len(vt) - 1))
-            vt[irq - offset] = func
+            if len(func_name) > 0:
+                vt[irq - offset] = func_name
+            else:
+                vt[irq - offset] = func
         else:
             # Regular interrupt
             if not swt:
@@ -349,8 +353,10 @@ def main():
                       + f"\nExisting handler 0x{swt[table_index][1]:x}, new handler 0x{func:x}"
                       + "\nHas IRQ_CONNECT or IRQ_DIRECT_CONNECT accidentally been invoked on the same irq multiple times?"
                 )
-
-            swt[table_index] = (param, func)
+            if len(func_name) > 0:
+                swt[table_index] = (param, func_name)
+            else:
+                swt[table_index] = (param, func)
 
     with open(args.output_source, "w") as fp:
         write_source_file(fp, vt, swt, intlist, syms)

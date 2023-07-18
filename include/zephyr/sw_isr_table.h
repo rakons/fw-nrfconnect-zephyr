@@ -59,6 +59,8 @@ struct _isr_list {
 	void *func;
 	/** Parameter for non-direct IRQs */
 	const void *param;
+	/** The name of the function to call */
+	char func_name[32];
 };
 
 /** This interrupt gets put directly in the vector table */
